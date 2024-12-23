@@ -44,6 +44,50 @@ def generate_addition_problem(digits: int = config.num_digits) -> Tuple[str, str
     answer = '0'+answer 
   return problem, answer[::-1]
 
+def generate_subtraction_problem(digits: int = config.num_digits) -> Tuple[str, str]:
+    num_1 = random.randint(10**(digits-1), 10**digits - 1)
+    num_2 = random.randint(0, num_1) 
+
+    problem = f"{num_1}-{num_2}="
+    answer = str(num_1 - num_2)
+    if len(answer) < digits + 1:
+        answer = '0' * ((digits+1) - len(answer)) + answer
+    return problem, answer[::-1]
+
+def generate_multiplication_problem(digits: int = config.num_digits) -> Tuple[str, str]:
+    max_result_digits = digits + 1
+    max_input = 10**(max_result_digits // 2) - 1  
+
+    num_1 = random.randint(1, max_input)
+    num_2 = random.randint(1, max_input)
+
+    problem = f"{num_1}*{num_2}="
+    answer = str(num_1 * num_2)
+
+    if len(answer) < max_result_digits:
+        answer = '0' * (max_result_digits - len(answer)) + answer
+
+    return problem, answer[::-1]
+
+def generate_division_problem(digits: int = config.num_digits) -> Tuple[str, str]:
+    if digits == 1:
+        quotient = random.randint(1, 9)
+        num_2 = random.randint(1, 9)
+        num_1 = quotient * num_2
+    else:
+        max_quotient = 10**digits - 1
+        quotient = random.randint(1, max_quotient)
+        max_divisor = 10**(digits - 1) - 1
+        num_2 = random.randint(1, max_divisor)
+        num_1 = quotient * num_2
+    problem = f"{num_1}/{num_2}="
+    answer = str(quotient)
+
+    if len(answer) < digits + 1:
+        answer = '0' * ((digits + 1) - len(answer)) + answer
+
+    return problem, answer[::-1]
+
 def encode_problem(problem: str, answer: str):
   y = [-1] * len(problem)
   x = torch.tensor(encode(problem))
@@ -51,18 +95,26 @@ def encode_problem(problem: str, answer: str):
   y = torch.tensor(y)
   return x, y
 
-# Get_Batch Function
 def get_batch():
-  xs, ys = [], []
-  for i in range(config.batch_size):
-    x, y = encode_problem(*generate_addition_problem())
-    x = F.pad(x, (0, config.block_size - len(x)), value=PAD_TOKEN)
-    y = F.pad(y, (0, config.block_size - len(y)), value=-1)
-    xs.append(x)
-    ys.append(y)
-  x_stack = torch.stack(xs)
-  y_stack = torch.stack(ys)
-  return x_stack.to(config.device), y_stack.to(config.device)
+    xs, ys = [], []
+    operations = [
+        generate_addition_problem,
+        generate_subtraction_problem,
+        generate_multiplication_problem,
+        generate_division_problem,
+    ]
+
+    for _ in range(config.batch_size):
+        operation = random.choice(operations)
+        problem, answer = operation()
+        x, y = encode_problem(problem, answer)
+        x = F.pad(x, (0, config.block_size - len(x)), value=PAD_TOKEN)
+        y = F.pad(y, (0, config.block_size - len(y)), value=-1)
+        xs.append(x)
+        ys.append(y)
+    x_stack = torch.stack(xs)
+    y_stack = torch.stack(ys)
+    return x_stack.to(config.device), y_stack.to(config.device)
 
 class Head(nn.Module):
     """ one head of self-attention """
@@ -77,24 +129,18 @@ class Head(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
-        # input of size (batch, time-step, channels)
-        # output of size (batch, time-step, head size)
         B,T,C = x.shape
-        k = self.key(x)   # (B,T,hs)
-        q = self.query(x) # (B,T,hs)
-        # compute attention scores ("affinities")
-        wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
-        wei = F.softmax(wei, dim=-1) # (B, T, T)
+        k = self.key(x)   
+        q = self.query(x)
+        wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) 
+        wei = F.softmax(wei, dim=-1) 
         wei = self.dropout(wei)
-        # perform the weighted aggregation of the values
-        v = self.value(x) # (B,T,hs)
-        out = wei @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        v = self.value(x) 
+        out = wei @ v 
         return out
 
 class MultiHeadAttention(nn.Module):
-    """ multiple heads of self-attention in parallel """
-
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
@@ -107,8 +153,6 @@ class MultiHeadAttention(nn.Module):
         return out
 
 class FeedFoward(nn.Module):
-    """ a simple linear layer followed by a non-linearity """
-
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
@@ -122,10 +166,7 @@ class FeedFoward(nn.Module):
         return self.net(x)
 
 class Block(nn.Module):
-    """ Transformer block: communication followed by computation """
-
     def __init__(self, n_embd, n_head):
-        # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
         head_size = n_embd // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
@@ -142,7 +183,6 @@ class GPTLanguageModel(nn.Module):
 
     def __init__(self):
         super().__init__()
-        # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, config.n_embd)
         self.position_embedding_table = nn.Embedding(config.block_size, config.n_embd)
         self.blocks = nn.Sequential(
@@ -152,7 +192,6 @@ class GPTLanguageModel(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, vocab_size)
         self.apply(self._init_weights)
 
-        # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -166,13 +205,13 @@ class GPTLanguageModel(nn.Module):
     def forward(self, idx, targets=None):
         B, T = idx.shape
 
-        # idx and targets are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(idx) # (B,T,C)
-        pos_emb = self.position_embedding_table(torch.arange(T, device=config.device)) # (T,C)
-        x = tok_emb + pos_emb # (B,T,C)
-        x = self.blocks(x) # (B,T,C)
-        x = self.ln_f(x) # (B,T,C)
-        logits = self.lm_head(x) # (B,T,vocab_size)
+       
+        tok_emb = self.token_embedding_table(idx)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=config.device))
+        x = tok_emb + pos_emb 
+        x = self.blocks(x) 
+        x = self.ln_f(x) 
+        logits = self.lm_head(x) 
 
         if targets is None:
             loss = None
@@ -186,30 +225,34 @@ class GPTLanguageModel(nn.Module):
         return logits, loss
 
     def generate(self, idx):
-        # idx is (B, T) array of indices in the current context
         for _ in range(config.block_size):
-            # crop idx to the last block_size tokens
             idx_cond = idx[:, -config.block_size:]
-            # get the predictions
             logits, loss = self(idx_cond)
-            # focus only on the last time step
             logits = logits[:, -1, :]
-            # apply softmax to get probabilities
-            probs = F.softmax(logits, dim=-1) # (B, C)
-            # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1) # (B, 1)
-            # append sampled index to the running sequence
-            idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
+            probs = F.softmax(logits, dim=-1) 
+            idx_next = torch.multinomial(probs, num_samples=1) 
+            idx = torch.cat((idx, idx_next), dim=1) 
         return idx
 
 # Test Function
-def test_generations(model, num_evals = 10):
-  for i in range(num_evals):
-    problem, answer = generate_addition_problem()
-    problem_tensified, _ = encode_problem(problem, answer)
-    out = model.generate(problem_tensified.unsqueeze(0).to(config.device))
-    out = decode([int(x) for x in out[0].tolist()])[len(problem):]
-    print(f"Problem: {problem} | Output: {out[:config.num_digits+1][::-1]}")
+def test_generations(model, num_evals=10):
+    operations = [
+        generate_addition_problem,
+        generate_subtraction_problem,
+        generate_multiplication_problem,
+        generate_division_problem,
+    ]
+
+    for _ in range(num_evals):
+        operation = random.choice(operations)
+        problem, answer = operation()
+
+        problem_tensified, _ = encode_problem(problem, answer)
+        out = model.generate(problem_tensified.unsqueeze(0).to(device))
+
+        out_decoded = decode([int(x) for x in out[0].tolist()])
+        out_answer = out_decoded[len(problem):len(problem) + num_digits + 1]
+        print(f"Problem: {problem} | Output: {out_answer}")
 
 # Define model
 model = GPTLanguageModel()
