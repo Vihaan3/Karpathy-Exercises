@@ -187,9 +187,9 @@ class GPTLanguageModel(nn.Module):
 
     def generate(self, idx):
         # idx is (B, T) array of indices in the current context
-        for _ in range(block_size):
+        for _ in range(config.block_size):
             # crop idx to the last block_size tokens
-            idx_cond = idx[:, -block_size:]
+            idx_cond = idx[:, -config.block_size:]
             # get the predictions
             logits, loss = self(idx_cond)
             # focus only on the last time step
@@ -209,11 +209,11 @@ def test_generations(model, num_evals = 10):
     problem_tensified,  = encode_problem(problem, answer)
     out = model.generate(problem_tensified.unsqueeze(0).to(config.device))
     out = decode([int(x) for x in out[0].tolist()])[len(problem):]
-    print(f"Problem: {problem} | Output: {out[:num_digits+1][::-1]}")
+    print(f"Problem: {problem} | Output: {out[:config.num_digits+1][::-1]}")
 
 # Define model
 model = GPTLanguageModel()
-m = model.to(device)
+m = model.to(config.device)
 optimizer = torch.optim.AdamW(model.parameters(), lr = config.learning_rate)
 
 # Train Loop
