@@ -206,7 +206,7 @@ class GPTLanguageModel(nn.Module):
 def test_generations(model, num_evals = 10):
   for i in range(num_evals):
     problem, answer = generate_addition_problem()
-    problem_tensified,  = encode_problem(problem, answer)
+    problem_tensified, _ = encode_problem(problem, answer)
     out = model.generate(problem_tensified.unsqueeze(0).to(config.device))
     out = decode([int(x) for x in out[0].tolist()])[len(problem):]
     print(f"Problem: {problem} | Output: {out[:config.num_digits+1][::-1]}")
