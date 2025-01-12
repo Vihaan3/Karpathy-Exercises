@@ -35,14 +35,14 @@ decode = lambda l: ''.join([itos[i] for i in l])
 
 # Problem Generation Function
 def generate_addition_problem(digits: int = config.num_digits) -> Tuple[str, str]:
-  num_1 = random.randint(0, 10**digits -1)
-  num_2 = random.randint(0, 10**digits -1)
-
-  problem = f"{num_1}+{num_2}="
-  answer = str(num_1+num_2)
-  if len(answer) < digits + 1:
+    num_1 = random.randint(0, 10**digits -1)
+    num_2 = random.randint(0, 10**digits -1)
+    
+    problem = f"{num_1}+{num_2}="
+    answer = str(num_1+num_2)
+    if len(answer) < digits + 1:
     answer = '0'+answer 
-  return problem, answer[::-1]
+    return problem, answer[::-1]
 
 def generate_subtraction_problem(digits: int = config.num_digits) -> Tuple[str, str]:
     num_1 = random.randint(10**(digits-1), 10**digits - 1)
@@ -89,11 +89,11 @@ def generate_division_problem(digits: int = config.num_digits) -> Tuple[str, str
     return problem, answer[::-1]
 
 def encode_problem(problem: str, answer: str):
-  y = [-1] * len(problem)
-  x = torch.tensor(encode(problem))
-  y.extend(encode(answer))
-  y = torch.tensor(y)
-  return x, y
+    y = [-1] * len(problem)
+    x = torch.tensor(encode(problem))
+    y.extend(encode(answer))
+    y = torch.tensor(y)
+    return x, y
 
 def get_batch():
     xs, ys = [], []
@@ -253,6 +253,27 @@ def test_generations(model, num_evals=10):
         out_decoded = decode([int(x) for x in out[0].tolist()])
         out_answer = out_decoded[len(problem):len(problem) + num_digits + 1]
         print(f"Problem: {problem} | Output: {out_answer}")
+
+def evaluate_model_accuracy_by_type(model, num_evals=100):
+    operations = {
+        "addition": generate_addition_problem,
+        "subtraction": generate_subtraction_problem,
+        "multiplication": generate_multiplication_problem,
+        "division": generate_division_problem,
+    }
+    stats = {op: {"correct": 0, "total": 0} for op in operations}
+    for _ in range(num_evals):
+        op_name, operation = random.choice(list(operations.items()))
+        problem, answer = operation()
+        problem_tensified, _ = encode_problem(problem, answer)
+        out = model.generate(problem_tensified.unsqueeze(0).to(device))
+        out_decoded = decode([int(x) for x in out[0].tolist()])[len(problem):len(problem) + len(answer)]
+        stats[op_name]["total"] += 1
+        if out_decoded == answer:
+            stats[op_name]["correct"] += 1
+    overall_accuracy = sum(stat["correct"] for stat in stats.values()) / num_evals
+    operation_accuracies = {op: stat["correct"] / stat["total"] for op, stat in stats.items()}
+    return overall_accuracy, operation_accuracies
 
 # Define model
 model = GPTLanguageModel()
