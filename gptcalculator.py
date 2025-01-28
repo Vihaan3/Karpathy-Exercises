@@ -117,8 +117,6 @@ def get_batch():
     return x_stack.to(config.device), y_stack.to(config.device)
 
 class Head(nn.Module):
-    """ one head of self-attention """
-
     def __init__(self, head_size):
         super().__init__()
         self.key = nn.Linear(config.n_embd, head_size, bias=False)
@@ -164,7 +162,7 @@ class FeedFoward(nn.Module):
 
     def forward(self, x):
         return self.net(x)
-
+# Note: Direct transformer code (next ~70 lines) adapted from Andrej Karpathy's lecture series
 class Block(nn.Module):
     def __init__(self, n_embd, n_head):
         super().__init__()
